@@ -13,7 +13,7 @@ The script is set to prefer 1080p video, or lower if 1080p is not available. It 
 ### Visual C++ Build Tools
 1. One of the Python packages you have to install requires you to have Visual C++ Build Tools version 13 or newer installed. You can get it [here](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
-2. Go through the installation process. Once you get to the screen where you can view installed versions, click "Modify". From there, check "Desktop Development with C++" and then clickt he install button in the bottom right.
+2. Go through the installation process. Once you get to the screen where you can view installed versions, click "Modify". From there, check "Desktop Development with C++" and then click the install button in the bottom right.
 
 ### Virtual Environment
 1. Create a Python virtual environment in the desired folder:
