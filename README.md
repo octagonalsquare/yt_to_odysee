@@ -63,18 +63,18 @@ ODYSEE_CHANNEL_NAME: str = REPLACE
 ```bash
 pip install -r requirements.txt
 ```
-> NOTE: pip may complain about a certain package's version (likely libtorrent). Manually run pip install for just that package without a version number. The package that needs it thinks it has to have a specific version, but it works with the current one just fine.
-
-> NOTE: If it fails to start, make sure the desktop LBRY app is not running. Check your background apps tray and right click and click "Exit" to close it. You can open it back up once this is running.
+> NOTE: pip may complain about a certain package's version (likely libtorrent). Manually run `pip install [package name]` for just that package without a version number. The package that needs it thinks it has to have a specific version, but it works with the current one just fine.
 
 3. Install an extension to get a copy of your internet cookies. For [Chrome/Brave/Chromium](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc?pli=1) or for [Firefox](https://addons.mozilla.org/en-US/firefox/addon/get-cookies-txt-locally/).
 
-4. Go to and log into https://www.youtube.com/. Then click the extension and click "Export As". Name it whatever you want but save it in the root of your virtual environment. I'll assume the name is "cookies.txt".
+4. Go open a private browser window. Navigate to https://www.youtube.com. Once it loads, change the URL to https://www.youtube.com/robot.txt. Then click the extension and click "Export As". Name it whatever you want but save it in the root of your virtual environment. I'll assume the name is "cookies.txt". Now close the browser window so you don't change the session. This should create a perpetual cookie file. YouTube likes to change the cookies in your session frequently but this bypasses it. If it doesn't work, navigate to YT normally and get the cookie file that way. If done the second way, you will need to re-make the cookies file again every so often.
 
 5. Run the following command to start the lbrynet server:
 ```bash
 ./lbrynet.exe start
 ```
+
+> NOTE: If it fails to start, make sure the desktop LBRY app is not running. Check your background apps tray and right click and click "Exit" to close it. You can open it back up once this is running.
 
 6. You can now run the migration script. Below you will find all the command arguments and how to use them, but here is a recommended command for your first run:
 ```bash
@@ -103,12 +103,12 @@ python migrate_to_odysee.py --start-date 01-01-2015 --end-date 08-03-2025 --cont
 - Start with `python migrate_to_odysee.py`
 - Decide what type of content you want to migrate first. If you have a small channel, then you can probably do all without much issue. But the longer the script runs, the more likely you are to encounter issues. Add `--content-type [type]`
 - Decide what upload dates you want to process first. Again, small channels can likely do from channel creation to today. Add `--start-date [MM-DD-YYYY]` and `--end-date [MM-DD-YYYY]`
-- Add your temp folder `--temp-folder ./temp/` is what I recommend. Keeps everything within the virtual environment.
+- Add your temp folder `--temp-folder ./temp/` is what I recommend. Keeps everything within the virtual environment, but feel free to put this on a secondary drive or something.
 - Add your cookies `--cookies ./cookies.txt` assuming you named it cookies.txt and put it in your root folder.
 - Optionally add `--verbose` if you want to see all the details as it runs.
 
 - Press "Enter" and it will run. If you already ran it as above to pre-fetch the video_log.json file, it should very quickly return a list. From here, you can provide a list of YouTube video IDs that you DON'T want to migrate. These can be ones you just don't care to migrate or ones that you already migrated previously. The list should be space-delimited.
-> NOTE: You don't HAVE to provide this list for previously migrated videos that you migrated using this tool. Assuming you have changed nothing within Odysee about the video after it was migrated, the script will detect that the video it is working on is already on your Odysee channel and will skip it.
+> NOTE: You don't HAVE to provide this list for previously migrated videos that you migrated using this tool. Assuming you have changed nothing within Odysee about the video after it was migrated, the script will detect that the video it is working on is already on your Odysee channel and will skip it. In over 100 videos that I uploaded after adding the skip feature, no repeats were made when re-running the script.
 
 - If you give it a list of IDs, press "Enter". You can do this as many times as needed if you have multiple lists to remove. Once you're done removing items, leave the text input blank and press "Enter" to start migrating.
 
@@ -125,7 +125,9 @@ If several videos at the end of the log failed, it likely means one of a few thi
 1. If it says "Download failed":
     - Check your network connection as you may have just lost internet.
     - Check the command line. You may see entries related to yt-dlp failing to connect. It is possible the traffic was blocked by YouTube, especially if you had processed a TON of videos.
-2. If it says "Video publish failed", then check to make sure your lbrynet server is still running and that you haven't run out of space on your C drive.
+2. If it says "Video publish failed", then check to make sure your lbrynet server is still running and that you haven't run out of space on whatever drive you configured for storing blobs.
+
+You may run into errors from yt-dlp related to PO tokens, or SABR formats. These can either cause the downloads to fail or cause the videos to only download in low quality formats. If this happens, [check out this page](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) for guides on how to solve it. It is too in-depth for me to explain. You will add the string it wants you to create to the list on line 266.
 
 > I have added two functions that should make the below information moot. The idea is that, rather than letting the blobs sit there, after each video is fully uploaded and the blobs have been generated, they will be automatically reflected to various servers. Then, once that is done, they are deleted to make room for the next video. So far, this has not worked on my local machine. It should, according to the documentation for the lbrynet sdk. Due to this and some logs from lbrynet, I've determined my router is blocking my PC from making the right connections. You may need to set up port forwarding to allow this to work, or your system may let it work automatically. The log will indicate if this fails or succeeds. I would do a testrun by uncommenting line 80 and setting the value to "1-2" or a similar low number so you can test just a few videos and see if it will delete the blobs. If I can get this to work consistently, I will update this README.
 
@@ -138,5 +140,3 @@ On that note:
 5. If you get to where you can shut down the server and LBRY app and still watch the videos on other devices, then you're good! That means the videos are fully distributed and decentralized from your system.
 6. Once that happens, you can go to your lbrynet folder and delete the blobs. [Check this page](https://lbry.com/faq/lbry-directories) to see where that is.
 7. So if you have the space to store all your files, then I'd say just process them all and leave your PC running for a few days after if you can. If you have a ton of videos, it will take a few days anyway, and the first videos should be distributed properly by the time the rest are uploaded.
-
-Finally, you may run into errors from yt-dlp related to PO tokens, or SABR formats. These can either cause the downloads to fail or cause the videos to only download in low quality formats. If this happens, [check out this page](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) for guides on how to solve it. It is too in-depth for me to explain. You will add the string it wants you to create to the list on line 266.
