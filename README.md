@@ -35,18 +35,18 @@ python -m venv ./yt_to_odysee
 ### Code
 1. Open migrate_to_odysee.py in a text or code editor. I will assume you are using VS Code from this point forward.
 
-2. On line 16, replace the word **REPLACE** with the URL of your YouTube channel, surrounded by quotation marks. Should look roughly like this:
+2. On line 17, replace the word **REPLACE** with the URL of your YouTube channel, surrounded by quotation marks. Should look roughly like this:
 ```python
 YOUTUBE_CHANNEL_URL: str = "https://www.youtube.com/@ChannelName"
 ```
 
-3. On line 17, replace the word **REPLACE** with the channel name for your Odysee channel, including the @, and excluding the :[Number] at the end. Should look roughly like this:
+3. On line 16, replace the word **REPLACE** with the channel name for your Odysee channel, including the @, and excluding the :[Number] at the end. Should look roughly like this:
 ```python
 ODYSEE_CHANNEL_NAME: str = REPLACE
 ```
 > NOTE: This second one is *technically* optional. However, it is best to ensure you actually have a channel to add the videos to.
 
-4. Optionally, on line 79, if you want to limit the number of videos the script processes at one time, you can uncomment this line (CTRL-/ in most code editors, or just remove the # and the following space at the beginning of the line). Then replace the 1-100 in that line with whichever videos you want to get. So if you want to grab the first 100 videos, don't change it. If you want the next 200, you'd do 101-300. I would leave this uncommented for this first run.
+4. Optionally, on line 80, if you want to limit the number of videos the script processes at one time, you can uncomment this line (CTRL-/ in most code editors, or just remove the # and the following space at the beginning of the line). Then replace the 1-100 in that line with whichever videos you want to get. So if you want to grab the first 100 videos, don't change it. If you want the next 200, you'd do 101-300. I would leave this uncommented for this first run.
 
 ### Running
 1. In VS Code's terminal, or the CMD/Terminal of your operating system, make sure you're in the root directory of the virtual environment. Type in:
@@ -65,15 +65,16 @@ pip install -r requirements.txt
 ```
 > NOTE: pip may complain about a certain package's version (likely libtorrent). Manually run pip install for just that package without a version number. The package that needs it thinks it has to have a specific version, but it works with the current one just fine.
 
-3. Run the following command to start the lbrynet server:
+> NOTE: If it fails to start, make sure the desktop LBRY app is not running. Check your background apps tray and right click and click "Exit" to close it. You can open it back up once this is running.
+
+3. Install an extension to get a copy of your internet cookies. For [Chrome/Brave/Chromium](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc?pli=1) or for [Firefox](https://addons.mozilla.org/en-US/firefox/addon/get-cookies-txt-locally/).
+
+4. Go to and log into https://www.youtube.com/. Then click the extension and click "Export As". Name it whatever you want but save it in the root of your virtual environment. I'll assume the name is "cookies.txt".
+
+5. Run the following command to start the lbrynet server:
 ```bash
 ./lbrynet.exe start
 ```
-> NOTE: If it fails to start, make sure the desktop LBRY app is not running. Check your background apps tray and right click and click "Exit" to close it. You can open it back up once this is running.
-
-4. Install an extension to get a copy of your internet cookies. For [Chrome/Brave/Chromium](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc?pli=1) or for [Firefox](https://addons.mozilla.org/en-US/firefox/addon/get-cookies-txt-locally/).
-
-5. Go to and log into https://www.youtube.com/. Then click the extension and click "Export As". Name it whatever you want but save it in the root of your virtual environment. I'll assume the name is "cookies.txt".
 
 6. You can now run the migration script. Below you will find all the command arguments and how to use them, but here is a recommended command for your first run:
 ```bash
@@ -126,6 +127,8 @@ If several videos at the end of the log failed, it likely means one of a few thi
     - Check the command line. You may see entries related to yt-dlp failing to connect. It is possible the traffic was blocked by YouTube, especially if you had processed a TON of videos.
 2. If it says "Video publish failed", then check to make sure your lbrynet server is still running and that you haven't run out of space on your C drive.
 
+> I have added two functions that should make the below information moot. The idea is that, rather than letting the blobs sit there, after each video is fully uploaded and the blobs have been generated, they will be automatically reflected to various servers. Then, once that is done, they are deleted to make room for the next video. So far, this has not worked on my local machine. It should, according to the documentation for the lbrynet sdk. Due to this and some logs from lbrynet, I've determined my router is blocking my PC from making the right connections. You may need to set up port forwarding to allow this to work, or your system may let it work automatically. The log will indicate if this fails or succeeds. I would do a testrun by uncommenting line 80 and setting the value to "1-2" or a similar low number so you can test just a few videos and see if it will delete the blobs. If I can get this to work consistently, I will update this README.
+
 On that note:
 - LBRY stores the videos locally on your C drive ([see here for how to move it to another drive](https://lbry.com/faq/how-to-change-lbry-blob-files)). The videos are stored as blobs and slowly synced across the blockchain for further decentralization. This means that as you're uploading, you do slowly fill your drive, even though the videos get deleted after upload. This can be a problem. The solution is be slower.
 1. Run the script for however many videos you can comfortably handle, leaving drive space so you don't cause issues.
@@ -136,4 +139,4 @@ On that note:
 6. Once that happens, you can go to your lbrynet folder and delete the blobs. [Check this page](https://lbry.com/faq/lbry-directories) to see where that is.
 7. So if you have the space to store all your files, then I'd say just process them all and leave your PC running for a few days after if you can. If you have a ton of videos, it will take a few days anyway, and the first videos should be distributed properly by the time the rest are uploaded.
 
-Finally, you may run into errors from yt-dlp related to PO tokens, or SABR formats. These can either cause the downloads to fail or cause the videos to only download in low quality formats. If this happens, [check out this page](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) for guides on how to solve it. It is too in-depth for me to explain. You will add the string it wants you to create to the list on line 205.
+Finally, you may run into errors from yt-dlp related to PO tokens, or SABR formats. These can either cause the downloads to fail or cause the videos to only download in low quality formats. If this happens, [check out this page](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) for guides on how to solve it. It is too in-depth for me to explain. You will add the string it wants you to create to the list on line 266.

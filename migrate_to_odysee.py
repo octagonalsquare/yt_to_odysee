@@ -4,7 +4,7 @@ import glob
 import json
 import os
 import re
-import subprocess  # New import for ffprobe
+import subprocess  # For ffprobe/ffmpeg in is_vertical_short and audio normalization
 import sys
 import time
 from typing import Dict, List, Optional
@@ -53,13 +53,143 @@ def sanitize_name(name: str) -> str:
 def extract_youtube_content(channel_url: str, content_type: str, start_date: datetime.date, end_date: datetime.date,
                             cookies: Optional[str], verbose: bool, log_file: str, video_log: Dict[str, Dict]) -> Dict[str, Dict]:
     """Extract and filter YouTube videos, livestreams, or shorts using yt-dlp with date and content filters, using video_log for caching."""
-    # (Unchanged - omitted for brevity)
-    pass  # Replace with original function body
+    if content_type.lower() == 'videos':
+        tab = '/videos'
+        match_filters = ['live_status!=is_live & !original_url~=shorts']
+    elif content_type.lower() == 'livestreams':
+        tab = '/streams'
+        match_filters = ['live_status=is_live|was_live|post_live']
+    else:  # shorts
+        tab = '/shorts'
+        match_filters = ['original_url~=shorts']
+
+    url = f"{channel_url}{tab}"
+
+    ydl_opts: Dict = {
+        'quiet': not verbose,
+        'extract_flat': True,  # Fetch minimal metadata initially to optimize
+        'no_warnings': not verbose,
+        'verbose': verbose,
+        'dateafter': start_date.strftime('%Y%m%d'),
+        'datebefore': end_date.strftime('%Y%m%d'),
+        'match_filters': match_filters,
+        'sleep_interval': 5,  # Sleep 5-30s between requests
+        'max_sleep_interval': 30,
+        'sleep_requests': 1,  # Sleep 1s before each API call
+        'retry_sleep': 10,  # Sleep 10s before retrying on rate limit errors
+        # 'playlist_items': '1-100',  # Limit to first 100 items; adjust or remove for full fetch
+    }
+    if cookies:
+        ydl_opts['cookiefile'] = cookies
+
+    try:
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write(f"Fetching {content_type} from {url}\n")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            entries = info.get('entries', [])
+    except Exception as e:
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write(f"Extraction failed for {url}: {e}\n")
+        print(f"Extraction error: {e}. Check {log_file} for details.")
+        return {}
+
+    if not entries:
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write(f"No entries found for {url} with content_type={content_type}, date range {start_date} to {end_date}. Verify channel URL, content visibility, or use --cookies if private.\n")
+        print("No videos found. Enable --verbose for more details or check migration_log.txt.")
+        return {}
+
+    video_dict: Dict[str, Dict] = {}
+    for entry in entries:
+        if not entry or 'id' not in entry:
+            with open(log_file, 'a', encoding='utf-8') as log:
+                try:
+                    log.write(f"Skipping invalid entry (id: {entry.get('id', 'unknown')}, title: {entry.get('title', 'unknown')[:50]})\n")
+                except UnicodeEncodeError:
+                    log.write(f"Skipping invalid entry (id: {entry.get('id', 'unknown')}, title: <unencodable>)\n")
+            continue
+
+        vid_id = entry['id']
+        required_keys = ['title', 'upload_date', 'duration', 'description', 'type', 'thumbnail', 'tags']
+        if vid_id in video_log and all(k in video_log[vid_id] for k in required_keys):
+            data = video_log[vid_id]
+        else:
+            ydl_full_opts = {
+                'quiet': not verbose,
+                'no_warnings': not verbose,
+                'verbose': verbose,
+            }
+            if cookies:
+                ydl_full_opts['cookiefile'] = cookies
+            with yt_dlp.YoutubeDL(ydl_full_opts) as ydl_full:
+                try:
+                    full_info = ydl_full.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=False)
+                except Exception as e:
+                    with open(log_file, 'a', encoding='utf-8') as log:
+                        log.write(f"Failed to fetch full info for {vid_id}: {e}\n")
+                    continue
+
+            # Apply match_filter manually since it's not applied on individual extract
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl_matcher:
+                if ydl_matcher._match_entry(full_info, incomplete=False) is not None:
+                    continue
+
+            upload_str = full_info.get('upload_date')
+            if not upload_str:
+                with open(log_file, 'a', encoding='utf-8') as log:
+                    log.write(f"No upload_date for video {vid_id}; skipping.\n")
+                continue
+
+            data = {
+                'title': full_info.get('title', 'Untitled'),
+                'upload_date': upload_str,
+                'duration': format_duration(full_info.get('duration', 0)),
+                'description': full_info.get('description', ''),
+                'type': determine_type(full_info),
+                'thumbnail': full_info.get('thumbnail', ''),
+                'tags': full_info.get('tags', [])
+            }
+            video_log[vid_id] = data
+            time.sleep(5)  # Avoid rate limits
+
+        # Check date range
+        upload_str = data.get('upload_date')
+        if upload_str:
+            try:
+                upload_dt = datetime.datetime.strptime(upload_str, '%Y%m%d').date()
+            except ValueError:
+                continue
+            if upload_dt > end_date:
+                continue
+            if upload_dt < start_date:
+                break  # Entries are newest first
+            video_dict[vid_id] = data
+
+    if not video_dict:
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write(f"No videos matched the criteria for content_type={content_type}, date range {start_date} to {end_date}.\n")
+        print("No videos matched the criteria. Check migration_log.txt for details.")
+
+    return video_dict
 
 def confirm_videos(video_dict: Dict[str, Dict], log_file: str) -> Dict[str, Dict]:
     """Interactively confirm and remove videos from the dictionary; allow cancel to exit."""
-    # (Unchanged - omitted for brevity)
-    pass  # Replace with original function body
+    while True:
+        print("\nCurrent videos to migrate:")
+        print(json.dumps(video_dict, indent=4, ensure_ascii=False))
+        user_input = input(f"{len(video_dict.keys())} videos found. Enter space-separated video IDs to remove, 'cancel' to exit, or press Enter to proceed: ").strip()
+        if user_input.lower() == 'cancel':
+            with open(log_file, 'a', encoding='utf-8') as log:
+                log.write("Migration cancelled by user.\n")
+            print("Exiting as requested.")
+            sys.exit(0)
+        if not user_input:
+            break
+        ids_to_remove = user_input.split()
+        for vid_id in ids_to_remove:
+            video_dict.pop(vid_id, None)
+    return video_dict
 
 def is_vertical_short(video_path: str) -> bool:
     """Check if the video is vertical (short-like) using ffprobe."""
@@ -75,13 +205,58 @@ def is_vertical_short(video_path: str) -> bool:
         print(f"Failed to check aspect ratio for {video_path}: {e}")
         return False  # Assume not vertical on error
 
-def download_video(video_id: str, temp_folder: str, cookies: Optional[str]) -> Optional[str]:
-    """Download video in highest quality using yt-dlp, converting to MP4 if necessary, handling SABR formats."""
+# def get_audio_stats(video_path: str) -> Optional[Dict[str, float]]:
+#     """Get max and mean audio volume stats using ffmpeg."""
+#     try:
+#         # Run ffmpeg with astats filter to get stats
+#         command = ['ffmpeg', '-i', video_path, '-af', 'astats=metadata=1:reset=1', '-vn', '-f', 'null', '-']
+#         result = subprocess.run(command, stderr=subprocess.PIPE, text=True, check=True)
+#         lines = result.stderr.split('\n')
+#         max_volume = None
+#         mean_volume = None
+#         for line in lines:
+#             if 'Max volume' in line:
+#                 max_volume = float(line.split(':')[1].strip().split(' ')[0])
+#             if 'Mean volume' in line:
+#                 mean_volume = float(line.split(':')[1].strip().split(' ')[0])
+#         if max_volume is None or mean_volume is None:
+#             return None
+#         return {'max': max_volume, 'mean': mean_volume}
+#     except Exception as e:
+#         print(f"Failed to get audio stats for {video_path}: {e}")
+#         return None
+
+# def normalize_audio(video_path: str, temp_folder: str, vid_id: str, log_file: str) -> str:
+#     """Normalize audio if too low by boosting volume to target max ~0 dB."""
+#     stats = get_audio_stats(video_path)
+#     if stats is None:
+#         return video_path  # Skip if stats fail
+#     max_vol = stats['max']
+#     if max_vol >= -5:  # Already above threshold
+#         return video_path
+
+#     # Calculate boost: negative of max_vol to reach 0 dB (with headroom to avoid clipping)
+#     boost_db = -max_vol - 1  # -1 dB headroom
+#     normalized_path = os.path.join(temp_folder, f"{vid_id}_normalized.mp4")
+#     command = ['ffmpeg', '-i', video_path, '-af', f'volume={boost_db}dB', '-c:v', 'copy', '-c:a', 'aac', normalized_path]
+#     try:
+#         result = subprocess.run(command, check=True, capture_output=True, text=True)
+#         with open(log_file, 'a', encoding='utf-8') as log:
+#             log.write(f"Normalized audio for {vid_id}: {result.stdout}\n")
+#         os.remove(video_path)  # Replace original
+#         return normalized_path
+#     except Exception as e:
+#         with open(log_file, 'a', encoding='utf-8') as log:
+#             log.write(f"Audio normalization failed for {video_path}: {str(e)}\n")
+#         return video_path  # Fallback to original
+
+def download_video(video_id: str, temp_folder: str, cookies: Optional[str], log_file: str) -> Optional[str]:
+    """Download video in highest quality using yt-dlp, converting to MP4 if necessary, handling SABR formats, and normalizing audio."""
     url = f"https://www.youtube.com/watch?v={video_id}"
     video_path = os.path.join(temp_folder, f"{video_id}.%(ext)s")
 
     ydl_opts: Dict = {
-        'format': '((bv*[fps>=30]/bv*)[height<=1080]/(wv*[fps>=30]/wv*)) + ba / (b[fps>=30]/b)[height<=1080]/(w[fps>=30]/w)',  # Prefer MP4 to avoid SABR issues
+        'format': 'best[height<=1080][fps>=30]/best[height<=1080]',
         'outtmpl': {'default': video_path},
         'quiet': False,  # Show progress
         'sleep_interval': 5,
@@ -91,17 +266,11 @@ def download_video(video_id: str, temp_folder: str, cookies: Optional[str]) -> O
             'youtube': ['formats=missing_pot']  # Enable broken/missing URL formats
         },
         'postprocessors': [
-            {  # Merge and convert to MP4 with H.264 baseline for better iOS compatibility
+            # Removed FFmpegMerger, as format '+' handles merging
+            {  # Convert to MP4 with H.264 baseline for better iOS compatibility
                 'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
+                'preferedformat': 'mp4'
             },
-            {  # Ensure H.264 encoding with baseline profile
-                'key': 'FFmpegVideoRemuxer',
-                'preferedformat': 'mp4',
-                'when': 'after_video',
-                'add_chapters': True,
-                'add_metadata': True,
-            }
         ],
     }
     if cookies:
@@ -118,6 +287,9 @@ def download_video(video_id: str, temp_folder: str, cookies: Optional[str]) -> O
             video_path = os.path.join(temp_folder, actual_video)
         else:
             return None
+
+        # Always normalize audio to ensure it passes verification
+        # video_path = normalize_audio(video_path, temp_folder, video_id, log_file)
         return video_path
     except Exception as e:
         print(f"Download failed for {video_id}: {e}")
@@ -125,11 +297,37 @@ def download_video(video_id: str, temp_folder: str, cookies: Optional[str]) -> O
 
 def claim_exists(video_name: str, log_file: str) -> bool:
     """Check if a valid claim (active stream with source) with the given name already exists on Odysee using LBRY API."""
-    # (Unchanged - omitted for brevity)
-    pass  # Replace with original function body
+    api_url = "http://localhost:5279"
+    data = {
+        "jsonrpc": "2.0",
+        "method": "resolve",
+        "params": {"urls": [video_name]},
+        "id": 1
+    }
+    try:
+        response = requests.post(api_url, json=data)
+        response.raise_for_status()
+        result = response.json().get("result", {})
+        if video_name in result:
+            claim = result[video_name]
+            # Check if it's a valid stream claim with a source (file)
+            if claim.get('value_type') == 'stream' and claim.get('value', {}).get('source'):
+                with open(log_file, 'a', encoding='utf-8') as log:
+                    log.write(f"Valid claim '{video_name}' already exists on Odysee (active stream). Skipping upload.\n")
+                return True
+            else:
+                with open(log_file, 'a', encoding='utf-8') as log:
+                    log.write(f"Claim '{video_name}' exists but is invalid/inactive (no source or not a stream). Proceeding with upload.\n")
+                return False
+        return False
+    except Exception as e:
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write(f"Failed to check if claim '{video_name}' exists: {str(e)}\n")
+        print(f"Warning: Failed to check existing claim: {e}. Proceeding with upload.")
+        return False  # Assume not exists on error to avoid blocking
 
 def upload_to_odysee(video_path: str, thumbnail_url: str, title: str, description: str, channel_name: Optional[str],
-                     bid: str, log_file: str, duration: str, upload_date: str, content_type: str) -> bool:
+                     bid: str, log_file: str, duration: str, upload_date: str, content_type: str, tags: List[str]) -> bool:
     """Upload video to Odysee using LBRY API (requires daemon running at localhost:5279)."""
     api_url = "http://localhost:5279"
 
@@ -162,9 +360,8 @@ def upload_to_odysee(video_path: str, thumbnail_url: str, title: str, descriptio
         "thumbnail_url": thumbnail_url,
         "languages": ["en"],
         "release_time": release_time,
-        "optimize_file": optimize_file,  # Customized per video type
-        "validate_file": True,
-        "tags": [content_type, "short"] if is_short else [content_type],  # Add 'short' tag for potential app handling
+        "optimize_file": optimize_file,
+        "tags": tags + [content_type] + (["short"] if is_short else []),
     }
     if duration:
         params_video["duration"] = parse_duration(duration)
@@ -200,31 +397,70 @@ def upload_to_odysee(video_path: str, thumbnail_url: str, title: str, descriptio
     return False
 
 def reflect_and_clean_blobs(log_file: str) -> None:
-    """Reflect all saved blobs to distribute to the network, then clean the blob cache to free local storage."""
+    """Reflect all saved blobs to distribute to the network, then clean the blob cache."""
     api_url = "http://localhost:5279"
+    reflector_servers = [
+        "reflector.lbry.com:5566",
+        "lbryumx1.lbry.com:5566",
+        "lbryumx2.lbry.com:5566",
+        "blobcache-eu.odycdn.com:5567",
+        "blobcache-eu.odycdn.com:5568",
+        "blobcache-eu.odycdn.com:5569"
+    ]
 
-    # Call blob_reflect_all
-    data_reflect = {
+    # Step 1: List all finished blobs
+    data_list = {
         "jsonrpc": "2.0",
-        "method": "blob_reflect_all",
-        "params": {},
+        "method": "blob_list",
+        "params": {"finished": True},
         "id": 1
     }
     try:
-        response_reflect = requests.post(api_url, json=data_reflect)
-        response_reflect.raise_for_status()
-        result_reflect = response_reflect.json()
-        if "result" in result_reflect and result_reflect["result"] is True:
-            with open(log_file, 'a', encoding='utf-8') as log:
-                log.write("Successfully reflected all blobs to the network.\n")
-        else:
-            raise ValueError("Blob reflection failed or returned unexpected result.")
+        response_list = requests.post(api_url, json=data_list)
+        response_list.raise_for_status()
+        result_list = response_list.json()
+        if "result" not in result_list or "items" not in result_list["result"]:
+            raise ValueError("Blob list failed or returned unexpected result.")
+        blob_hashes = result_list["result"]["items"]
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write(f"Found {len(blob_hashes)} finished blobs to reflect.\n")
     except Exception as e:
         with open(log_file, 'a', encoding='utf-8') as log:
-            log.write(f"Failed to reflect blobs: {str(e)}\n")
-        return  # Continue to cleaning even if reflection fails
+            log.write(f"Failed to list blobs: {str(e)}\n")
+        return
 
-    # Call blob_clean
+    if not blob_hashes:
+        with open(log_file, 'a', encoding='utf-8') as log:
+            log.write("No blobs to reflect.\n")
+    else:
+        reflected_count = 0
+        for reflector in reflector_servers:
+            # Step 2: Try reflecting with current server
+            data_reflect = {
+                "jsonrpc": "2.0",
+                "method": "blob_reflect",
+                "params": {"blob_hashes": blob_hashes, "reflector_server": reflector},
+                "id": 1
+            }
+            try:
+                response_reflect = requests.post(api_url, json=data_reflect)
+                response_reflect.raise_for_status()
+                result_reflect = response_reflect.json()
+                if "result" in result_reflect:
+                    reflected_count = len(result_reflect["result"])
+                    with open(log_file, 'a', encoding='utf-8') as log:
+                        log.write(f"Successfully reflected {reflected_count} blobs using {reflector}.\n")
+                    break  # Success, no need to try more
+                else:
+                    raise ValueError(f"Blob reflect failed with {reflector}.")
+            except Exception as e:
+                with open(log_file, 'a', encoding='utf-8') as log:
+                    log.write(f"Failed to reflect blobs with {reflector}: {str(e)}\n")
+        if reflected_count == 0:
+            with open(log_file, 'a', encoding='utf-8') as log:
+                log.write("Failed to reflect blobs with all alternative servers.\n")
+
+    # Step 3: Clean blobs regardless of reflection success
     data_clean = {
         "jsonrpc": "2.0",
         "method": "blob_clean",
@@ -313,7 +549,7 @@ def main() -> None:
         if claim_exists(video_name, log_file):
             continue  # Skip download and upload, don't add to lists
 
-        video_path = download_video(vid_id, args.temp_folder, args.cookies)
+        video_path = download_video(vid_id, args.temp_folder, args.cookies, log_file)
         if not video_path:
             with open(log_file, 'a', encoding='utf-8') as log:
                 log.write(f"Download failed for {info['title']}\n")
@@ -321,7 +557,7 @@ def main() -> None:
             continue
 
         success = upload_to_odysee(video_path, info['thumbnail'], info['title'], info['description'], ODYSEE_CHANNEL_NAME,
-                                   ODYSEE_BID, log_file, info['duration'], info['upload_date'], info['type'])
+                                   ODYSEE_BID, log_file, info['duration'], info['upload_date'], info['type'], info.get('tags', []))
         if success:
             successful_ids.append(vid_id)
         else:
