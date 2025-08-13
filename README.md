@@ -2,6 +2,11 @@
 
 A Python script to migrate YouTube content over to Odysee.
 
+Watch the walkthrough here:
+https://odysee.com/@OctagonalSoftware:3/YouTube-Migration-Tool:9?r=ioThPUwWBx8LAEzMQC3Xi7Yd7uLq1obu
+
+## Preface
+
 Obviously, you need Python. This should work on any version 3.8 or newer, but I can't guarantee anything other than 3.12 as that is what I used it with.
 
 The script is set to prefer 1080p video, or lower if 1080p is not available. It will also use the highest framerate it can get, not allowing lower than 30. I added the 1080p limitation as in all testing, even manual uploads, videos higher than 1080p seem to have severe loading issues. I was unable to load them on mobile at all and on PC they would stop about 10 minutes in and never load the rest, eventually just giving up.
