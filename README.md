@@ -45,9 +45,9 @@ python -m venv ./yt_to_odysee
 YOUTUBE_CHANNEL_URL: str = "https://www.youtube.com/@ChannelName"
 ```
 
-3. On line 16, replace the word **REPLACE** with the channel name for your Odysee channel, including the @, and excluding the :[Number] at the end. Should look roughly like this:
+3. On line 16, replace the word **REPLACE** with the channel name for your Odysee channel, including the @, and including the :[Numbers&Letters] at the end. Should look roughly like this:
 ```python
-ODYSEE_CHANNEL_NAME: str = REPLACE
+ODYSEE_CHANNEL_NAME: str = @YourChannelName:0
 ```
 > NOTE: This second one is *technically* optional. However, it is best to ensure you actually have a channel to add the videos to.
 
